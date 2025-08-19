@@ -317,6 +317,18 @@ export const AdminApi = {
 
   async getAnalytics(params?: any) {
     return apiRequest('GET', '/api/admin/analytics', null, { params });
+  },
+
+  async adminLogin(email: string, password: string) {
+    return apiRequest('POST', '/api/admin/login', { email, password });
+  },
+
+  async adminLogout() {
+    return apiRequest('POST', '/api/admin/logout');
+  },
+
+  async getAdminProfile() {
+    return apiRequest('GET', '/api/admin/profile');
   }
 };
 

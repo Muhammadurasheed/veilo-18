@@ -47,41 +47,34 @@ const AdminLogin = ({ onLoginSuccess }: AdminLoginProps) => {
     setIsLoading(true);
 
     try {
-      // For demo purposes, let's use a hardcoded admin login
-      // In production, this should use the actual API
-      if (values.email === 'admin@veilo.app' && values.password === 'admin123') {
-        // Simulate successful login
-        setTimeout(() => {
-          toast({
-            title: 'Login successful',
-            description: 'Welcome to the admin panel.',
-          });
-          onLoginSuccess();
-          setIsLoading(false);
-        }, 1000);
-        return;
-      }
-
-      // Actual API integration (commented out for demo)
-      /*
+      // Use the real API for admin login
       const response = await AdminApi.adminLogin(values.email, values.password);
       
       if (!response.success || !response.data) {
         throw new Error(response.error || 'Invalid credentials');
       }
 
-      // Store admin token
+      // Store admin token and user data
       localStorage.setItem('adminToken', response.data.token);
+      if (response.data.user) {
+        localStorage.setItem('adminUser', JSON.stringify(response.data.user));
+      }
+      
+      toast({
+        title: 'Login successful',
+        description: `Welcome back, ${response.data.user?.alias || 'Admin'}!`,
+      });
+      
       onLoginSuccess();
-      */
-
-      throw new Error('Invalid credentials');
+      
     } catch (error) {
+      console.error('Admin login error:', error);
       toast({
         variant: 'destructive',
         title: 'Login failed',
         description: error instanceof Error ? error.message : 'An unexpected error occurred.',
       });
+    } finally {
       setIsLoading(false);
     }
   };
@@ -109,7 +102,7 @@ const AdminLogin = ({ onLoginSuccess }: AdminLoginProps) => {
                       <FormItem>
                         <FormLabel>Email</FormLabel>
                         <FormControl>
-                          <Input placeholder="admin@veilo.app" {...field} />
+                          <Input placeholder="yekinirasheed2002@gmail.com" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -146,7 +139,7 @@ const AdminLogin = ({ onLoginSuccess }: AdminLoginProps) => {
                   </Button>
                   
                   <div className="text-center text-sm text-gray-500 mt-4">
-                    <p>For demo: admin@veilo.app / admin123</p>
+                    <p>Access restricted to authorized administrators</p>
                   </div>
                 </form>
               </Form>
