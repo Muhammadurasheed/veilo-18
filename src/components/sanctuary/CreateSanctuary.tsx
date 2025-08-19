@@ -117,9 +117,17 @@ const CreateSanctuary: React.FC = () => {
         const response = await SanctuaryApi.createSession(sanctuaryData);
         
         if (response.success && response.data) {
-          // Store host token in localStorage if this is an anonymous host
+          // Store host token with enhanced persistence strategy
           if (response.data.hostToken) {
-            localStorage.setItem(`sanctuary-host-${response.data.id}`, response.data.hostToken);
+            const sanctuaryId = response.data.id;
+            const hostToken = response.data.hostToken;
+            
+            // Store in multiple locations for maximum persistence
+            localStorage.setItem(`sanctuary-host-${sanctuaryId}`, hostToken);
+            sessionStorage.setItem(`sanctuary-host-${sanctuaryId}`, hostToken);
+            
+            // Store in cookie for cross-tab persistence (24 hours)
+            document.cookie = `sanctuary-host-${sanctuaryId}=${hostToken}; path=/; max-age=${24 * 60 * 60}; SameSite=Strict`;
           }
           
           setCreatedSession(response.data);
@@ -146,9 +154,17 @@ const CreateSanctuary: React.FC = () => {
         const response = await LiveSanctuaryApi.createSession(liveSanctuaryData);
         
         if (response.success && response.data) {
-          // Store host token for anonymous hosts
+          // Store host token with enhanced persistence for live audio
           if (response.data.hostToken) {
-            localStorage.setItem(`live-sanctuary-host-${response.data.id}`, response.data.hostToken);
+            const sanctuaryId = response.data.id;
+            const hostToken = response.data.hostToken;
+            
+            // Store in multiple locations for maximum persistence
+            localStorage.setItem(`live-sanctuary-host-${sanctuaryId}`, hostToken);
+            sessionStorage.setItem(`live-sanctuary-host-${sanctuaryId}`, hostToken);
+            
+            // Store in cookie for cross-tab persistence (24 hours)
+            document.cookie = `live-sanctuary-host-${sanctuaryId}=${hostToken}; path=/; max-age=${24 * 60 * 60}; SameSite=Strict`;
           }
           
           setCreatedSession({

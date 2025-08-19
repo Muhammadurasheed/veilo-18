@@ -138,7 +138,7 @@ export const useSanctuaryRealtime = ({
     }, 10000); // Ping every 10 seconds
   }, []);
 
-  // Initialize socket connection
+  // Initialize socket connection with enhanced reconnection
   useEffect(() => {
     if (!sanctuaryId) return;
     
@@ -149,8 +149,11 @@ export const useSanctuaryRealtime = ({
       auth: { token },
       autoConnect: true,
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10, // Increased attempts
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+      forceNew: false
     });
 
     socketRef.current = socket;
@@ -161,11 +164,13 @@ export const useSanctuaryRealtime = ({
       setConnectionQuality(prev => ({ ...prev, status: 'excellent' }));
       onConnectionChange?.(true);
       
-      // Join sanctuary host room
-      socket.emit('join_sanctuary_host', {
-        sanctuaryId,
-        hostToken
-      });
+      // Join sanctuary host room with enhanced error handling
+      if (sanctuaryId && hostToken) {
+        socket.emit('join_sanctuary_host', {
+          sanctuaryId,
+          hostToken
+        });
+      }
       
       startPingMonitoring();
     });
@@ -194,19 +199,45 @@ export const useSanctuaryRealtime = ({
       setConnectionQuality(prev => ({ ...prev, status: 'excellent' }));
       onConnectionChange?.(true);
       
-      // Rejoin sanctuary host room
-      socket.emit('join_sanctuary_host', {
-        sanctuaryId,
-        hostToken
-      });
+      // Rejoin sanctuary host room with latest token
+      if (sanctuaryId && hostToken) {
+        socket.emit('join_sanctuary_host', {
+          sanctuaryId,
+          hostToken
+        });
+      }
       
       startPingMonitoring();
+      
+      // Show reconnection success toast
+      if (enableNotifications) {
+        toast({
+          title: '🔄 Reconnected',
+          description: 'Real-time updates restored successfully',
+          duration: 3000,
+        });
+      }
     });
 
     // Handle successful host room join
     socket.on('sanctuary_host_joined', (data) => {
       console.log('Successfully joined sanctuary host room:', data);
-      setTotalSubmissions(data.submissionsCount);
+      setTotalSubmissions(data.submissionsCount || 0);
+      
+      // Store updated host token if provided
+      if (data.hostToken && sanctuaryId) {
+        localStorage.setItem(`sanctuary-host-${sanctuaryId}`, data.hostToken);
+        sessionStorage.setItem(`sanctuary-host-${sanctuaryId}`, data.hostToken);
+      }
+      
+      // Show connection success notification
+      if (enableNotifications) {
+        toast({
+          title: '✅ Connected',
+          description: 'Real-time inbox updates are now active',
+          duration: 3000,
+        });
+      }
     });
 
     // Handle host authorization failure

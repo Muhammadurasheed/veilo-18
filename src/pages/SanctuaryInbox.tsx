@@ -39,12 +39,98 @@ const SanctuaryInbox = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // Check if we're the host (have host token) to show inbox view
-  const hostToken = sessionId ? localStorage.getItem(`sanctuary-host-${sessionId}`) : null;
-  const isHost = !!hostToken;
+  // Enhanced host verification using the new hook
+  const [isValidatingHost, setIsValidatingHost] = useState(true);
+  const [hostError, setHostError] = useState<string | null>(null);
 
-  // If not host, show join flow first
-  if (!isHost) {
+  // Get host token from multiple sources
+  const getHostTokenFromSources = useCallback(() => {
+    if (!sessionId) return null;
+    
+    // Priority order: URL params > localStorage > sessionStorage > cookie
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenFromUrl = urlParams.get('hostToken');
+    const tokenFromStorage = localStorage.getItem(`sanctuary-host-${sessionId}`);
+    const tokenFromSession = sessionStorage.getItem(`sanctuary-host-${sessionId}`);
+    
+    // Try cookie as last resort
+    const cookieName = `sanctuary-host-${sessionId}=`;
+    const decodedCookie = decodeURIComponent(document.cookie);
+    const ca = decodedCookie.split(';');
+    let tokenFromCookie = null;
+    
+    for (let i = 0; i < ca.length; i++) {
+      let c = ca[i];
+      while (c.charAt(0) === ' ') {
+        c = c.substring(1);
+      }
+      if (c.indexOf(cookieName) === 0) {
+        tokenFromCookie = c.substring(cookieName.length, c.length);
+        break;
+      }
+    }
+    
+    return tokenFromUrl || tokenFromStorage || tokenFromSession || tokenFromCookie;
+  }, [sessionId]);
+
+  // Verify host status on mount
+  useEffect(() => {
+    const verifyHostStatus = async () => {
+      if (!sessionId) return;
+      
+      const token = getHostTokenFromSources();
+      
+      if (!token) {
+        setHostError('No host access found');
+        setIsValidatingHost(false);
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/host-recovery/verify-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hostToken: token }),
+        });
+
+        const data = await response.json();
+        
+        if (data.success) {
+          // Store token in all locations for persistence
+          localStorage.setItem(`sanctuary-host-${sessionId}`, token);
+          sessionStorage.setItem(`sanctuary-host-${sessionId}`, token);
+          setHostError(null);
+        } else {
+          setHostError(data.error || 'Invalid host token');
+        }
+      } catch (error) {
+        setHostError('Failed to verify host status');
+      } finally {
+        setIsValidatingHost(false);
+      }
+    };
+
+    verifyHostStatus();
+  }, [sessionId, getHostTokenFromSources]);
+
+  // Show loading while validating host
+  if (isValidatingHost) {
+    return (
+      <Layout>
+        <div className="container py-10">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="animate-pulse text-center">
+              <div className="w-12 h-12 bg-primary/20 rounded-full mx-auto mb-4 animate-spin"></div>
+              <p className="text-muted-foreground">Verifying host access...</p>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // If not host, show join flow
+  if (hostError || !getHostTokenFromSources()) {
     return sessionId ? <EnhancedSanctuaryFlow sessionId={sessionId} sessionType="inbox" /> : null;
   }
   const [inboxData, setInboxData] = useState<SanctuaryInboxData | null>(null);
@@ -53,13 +139,10 @@ const SanctuaryInbox = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
-  // Get host token from localStorage or URL params
-  const getHostToken = () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const tokenFromUrl = urlParams.get('hostToken');
-    const tokenFromStorage = sessionId ? localStorage.getItem(`sanctuary-host-${sessionId}`) : null;
-    return tokenFromUrl || tokenFromStorage;
-  };
+  // Enhanced token retrieval with persistence
+  const getHostToken = useCallback(() => {
+    return getHostTokenFromSources();
+  }, [getHostTokenFromSources]);
 
   const fetchInboxData = useCallback(async (showLoading = false) => {
     if (!sessionId) return;

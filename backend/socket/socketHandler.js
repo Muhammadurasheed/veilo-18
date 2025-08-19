@@ -143,40 +143,93 @@ const initializeSocket = (server) => {
     socket.on('join_sanctuary_host', async (data) => {
       const { sanctuaryId, hostToken } = data;
       
-      // Verify host authorization
+      // Verify host authorization using HostSession model for persistence
+      const HostSession = require('../models/HostSession');
       const SanctuarySession = require('../models/SanctuarySession');
-      let session;
+      let hostSession;
+      let sanctuarySession;
       
-      if (hostToken) {
-        session = await SanctuarySession.findOne({ 
-          id: sanctuaryId,
-          hostToken
-        });
-      } else if (!socket.isAnonymous) {
-        session = await SanctuarySession.findOne({
-          id: sanctuaryId,
-          hostId: socket.userId
-        });
-      }
-      
-      if (session) {
-        socket.join(`sanctuary_host_${sanctuaryId}`);
-        socket.currentSanctuaryHost = sanctuaryId;
+      try {
+        // First, try to find active host session by token
+        if (hostToken) {
+          hostSession = await HostSession.findOne({ 
+            hostToken,
+            sanctuaryId,
+            isActive: true,
+            expiresAt: { $gt: new Date() }
+          });
+        }
         
-        // Send current submissions count
-        socket.emit('sanctuary_host_joined', {
-          sanctuaryId,
-          submissionsCount: session.submissions?.length || 0,
-          lastActivity: session.submissions?.length > 0 ? 
-            session.submissions[session.submissions.length - 1].timestamp : 
-            session.createdAt
-        });
+        // If no host session found and user is authenticated, check by user ID
+        if (!hostSession && !socket.isAnonymous) {
+          sanctuarySession = await SanctuarySession.findOne({
+            id: sanctuaryId,
+            hostId: socket.userId,
+            isActive: true,
+            expiresAt: { $gt: new Date() }
+          });
+          
+          if (sanctuarySession) {
+            // Create host session for authenticated user
+            hostSession = new HostSession({
+              sanctuaryId,
+              hostToken: hostToken || require('nanoid').nanoid(32),
+              hostId: socket.userId,
+              hostIp: socket.handshake.address,
+              userAgent: socket.handshake.headers['user-agent'],
+              expiresAt: sanctuarySession.expiresAt
+            });
+            await hostSession.save();
+          }
+        }
         
-        console.log(`Host ${socket.userId} joined sanctuary host room ${sanctuaryId}`);
-      } else {
+        if (hostSession) {
+          // Update last access
+          await hostSession.updateAccess();
+          
+          // Get sanctuary session if not already loaded
+          if (!sanctuarySession) {
+            sanctuarySession = await SanctuarySession.findOne({
+              id: sanctuaryId,
+              isActive: true,
+              expiresAt: { $gt: new Date() }
+            });
+          }
+          
+          if (sanctuarySession) {
+            socket.join(`sanctuary_host_${sanctuaryId}`);
+            socket.currentSanctuaryHost = sanctuaryId;
+            socket.hostToken = hostSession.hostToken;
+            
+            // Send current submissions count and session info
+            socket.emit('sanctuary_host_joined', {
+              sanctuaryId,
+              submissionsCount: sanctuarySession.submissions?.length || 0,
+              lastActivity: sanctuarySession.submissions?.length > 0 ? 
+                sanctuarySession.submissions[sanctuarySession.submissions.length - 1].timestamp : 
+                sanctuarySession.createdAt,
+              hostToken: hostSession.hostToken,
+              sessionInfo: {
+                topic: sanctuarySession.topic,
+                description: sanctuarySession.description,
+                emoji: sanctuarySession.emoji,
+                expiresAt: sanctuarySession.expiresAt
+              }
+            });
+            
+            console.log(`Host ${socket.userId} joined sanctuary host room ${sanctuaryId} with token ${hostSession.hostToken.substring(0, 8)}...`);
+          } else {
+            throw new Error('Sanctuary session not found or expired');
+          }
+        } else {
+          throw new Error('Host authorization failed');
+        }
+      } catch (error) {
+        console.error('Host authentication error:', error);
         socket.emit('sanctuary_host_auth_failed', {
           sanctuaryId,
-          error: 'Not authorized as host for this sanctuary'
+          error: 'Not authorized as host for this sanctuary',
+          details: error.message
         });
       }
     });
@@ -184,19 +237,54 @@ const initializeSocket = (server) => {
     socket.on('sanctuary_message', async (data) => {
       const { sanctuaryId, content, type = 'text' } = data;
       
-      const message = {
-        id: `sanctuary_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        participantId: socket.userId,
-        participantAlias: data.participantAlias || socket.userAlias || 'Anonymous',
-        content,
-        type,
-        timestamp: new Date().toISOString()
-      };
+      try {
+        // Find the sanctuary session to validate and store the message
+        const SanctuarySession = require('../models/SanctuarySession');
+        const sanctuarySession = await SanctuarySession.findOne({
+          id: sanctuaryId,
+          isActive: true,
+          expiresAt: { $gt: new Date() }
+        });
+        
+        if (!sanctuarySession) {
+          socket.emit('sanctuary_error', {
+            error: 'Sanctuary session not found or expired'
+          });
+          return;
+        }
+        
+        const message = {
+          id: `sanctuary_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          participantId: socket.userId,
+          participantAlias: data.participantAlias || socket.userAlias || 'Anonymous',
+          content,
+          type,
+          timestamp: new Date().toISOString()
+        };
 
-      // Broadcast to all participants in the sanctuary
-      io.to(`sanctuary_${sanctuaryId}`).emit('sanctuary_new_message', message);
-      
-      console.log(`Sanctuary message in ${sanctuaryId}:`, content);
+        // Store message in database for persistence
+        if (!sanctuarySession.submissions) {
+          sanctuarySession.submissions = [];
+        }
+        sanctuarySession.submissions.push(message);
+        await sanctuarySession.save();
+
+        // Broadcast to all participants in the sanctuary
+        io.to(`sanctuary_${sanctuaryId}`).emit('sanctuary_new_message', message);
+        
+        // Notify host with real-time submission
+        io.to(`sanctuary_host_${sanctuaryId}`).emit('sanctuary_new_submission', {
+          submission: message,
+          totalSubmissions: sanctuarySession.submissions.length
+        });
+        
+        console.log(`Sanctuary message stored and broadcast in ${sanctuaryId}:`, content);
+      } catch (error) {
+        console.error('Error handling sanctuary message:', error);
+        socket.emit('sanctuary_error', {
+          error: 'Failed to send message'
+        });
+      }
     });
 
     // Handle live audio room events
