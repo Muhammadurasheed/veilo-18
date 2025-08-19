@@ -18,6 +18,7 @@ import { useAgoraAudio } from '@/hooks/useAgoraAudio';
 import { useSanctuarySocket } from '@/hooks/useSocket';
 import AudioQualityMonitor from './AudioQualityMonitor';
 import SanctuaryAudioSettings from './SanctuaryAudioSettings';
+import AdvancedModeration from './AdvancedModeration';
 import {
   Mic,
   MicOff,
@@ -79,8 +80,13 @@ const LiveAudioRoom = ({ session, participant }: LiveAudioRoomProps) => {
   const [handRaised, setHandRaised] = useState(false);
   const [emojiReactions, setEmojiReactions] = useState<EmojiReaction[]>([]);
   const [showModeration, setShowModeration] = useState(false);
+  const [showAdvancedModeration, setShowAdvancedModeration] = useState(false);
   const [volume, setVolume] = useState(50);
   const [showEmergencyDialog, setShowEmergencyDialog] = useState(false);
+  
+  // Audio device management
+  const [availableDevices, setAvailableDevices] = useState<any[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('default');
   
   // Auto-connect on mount
   useEffect(() => {

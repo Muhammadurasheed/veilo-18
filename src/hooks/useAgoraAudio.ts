@@ -98,8 +98,17 @@ export const useAgoraAudio = (config: AgoraConfig) => {
       role: 'audience' // Start as audience, promote to host when needed
     });
 
-    // Enhanced audio settings for voice chat
+    // Enhanced audio settings for voice chat with production optimizations
     AgoraRTC.setLogLevel(1); // Error level only
+    
+    // Enable advanced audio features
+    AgoraRTC.enableLogUpload();
+    client.setLowStreamParameter({
+      width: 160,
+      height: 120,
+      framerate: 15,
+      bitrate: 140,
+    });
     
     clientRef.current = client;
 
@@ -304,12 +313,17 @@ export const useAgoraAudio = (config: AgoraConfig) => {
       // Set client role to host to enable publishing
       await clientRef.current.setClientRole('host');
       
-      // Create audio track with enhanced settings
+      // Create audio track with enhanced production settings
       const audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-        encoderConfig: 'high_quality_stereo',
+        encoderConfig: {
+          sampleRate: 48000,
+          stereo: true,
+          bitrate: 128,
+        },
         ANS: true, // Agora Noise Suppression
-        AEC: true, // Agora Echo Cancellation
+        AEC: true, // Agora Echo Cancellation  
         AGC: true, // Agora Gain Control
+        microphoneId: 'default' // Allow device switching later
       });
 
       localAudioTrackRef.current = audioTrack;
@@ -386,6 +400,48 @@ export const useAgoraAudio = (config: AgoraConfig) => {
     }
   }, []);
 
+  // Switch audio device (for multi-device support)
+  const switchAudioDevice = useCallback(async (deviceId: string) => {
+    if (!localAudioTrackRef.current) return;
+
+    try {
+      await localAudioTrackRef.current.setDevice(deviceId);
+      toast({
+        title: "Device Switched",
+        description: "Audio device changed successfully",
+      });
+    } catch (error) {
+      console.error('Failed to switch audio device:', error);
+      toast({
+        title: "Device Switch Failed",
+        description: "Unable to switch audio device",
+        variant: "destructive"
+      });
+    }
+  }, [toast]);
+
+  // Get available audio devices
+  const getAudioDevices = useCallback(async () => {
+    try {
+      const devices = await AgoraRTC.getDevices();
+      return devices.filter(device => device.kind === 'audioinput');
+    } catch (error) {
+      console.error('Failed to get audio devices:', error);
+      return [];
+    }
+  }, []);
+
+  // Check if microphone permission is granted
+  const checkMicrophonePermission = useCallback(async () => {
+    try {
+      const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      return result.state === 'granted';
+    } catch (error) {
+      console.error('Failed to check microphone permission:', error);
+      return false;
+    }
+  }, []);
+
   const cleanup = useCallback(async () => {
     // Clear intervals and timeouts
     if (audioLevelIntervalRef.current) {
@@ -453,6 +509,12 @@ export const useAgoraAudio = (config: AgoraConfig) => {
     adjustVolume,
     
     // Advanced features
-    cleanup
+    cleanup,
+    switchAudioDevice,
+    getAudioDevices,
+    checkMicrophonePermission,
+    
+    // Agora credentials for UI components
+    agoraCredentials
   };
 };
